@@ -6,5 +6,5 @@ server:
 
 gemini:
   api:
-    key: AIzaSyCgd-dqqxidAPtf0L2APbMAer_SixKLmwQ
+    key: ${GEMINI_API_KEY}
 
