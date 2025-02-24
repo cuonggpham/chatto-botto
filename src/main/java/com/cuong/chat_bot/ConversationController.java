@@ -16,7 +16,7 @@ public class ConversationController {
 
     @PostMapping(value = "/conversation", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> chat(@RequestBody PromptRequest request) {
-        //Return SSE
+        // Return SSEs
         return llmConnector.respond(request.getContent())
                 .map(token -> ServerSentEvent.<String>builder()
                         .event("delta")

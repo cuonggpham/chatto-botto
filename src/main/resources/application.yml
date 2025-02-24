@@ -1,0 +1,10 @@
+server:
+  port: 8080
+  http2:
+    enabled: true
+
+
+gemini:
+  api:
+    key: AIzaSyCgd-dqqxidAPtf0L2APbMAer_SixKLmwQ
+

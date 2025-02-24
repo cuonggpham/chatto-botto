@@ -1,66 +1,109 @@
-document.getElementById('sendButton').addEventListener('click', async function() {
-    // Xóa nội dung chat cũ
+document.addEventListener("DOMContentLoaded", () => {
     const chatArea = document.getElementById('chatArea');
-    chatArea.innerHTML = '';
+    const questionInput = document.getElementById('questionInput');
+    const sendButton = document.getElementById('sendButton');
 
-    // Lấy câu hỏi từ ô nhập
-    const question = document.getElementById('questionInput').value;
-
-    // Gửi request POST đến API
-    const response = await fetch('/api/v1/conversation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: question })
+    questionInput.addEventListener("keypress", function(event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            sendMessage();
+        }
     });
 
-    // Kiểm tra phản hồi từ server
-    if (!response.ok) {
-        console.error('Network response was not ok');
-        return;
-    }
+    sendButton.addEventListener('click', sendMessage);
 
-    // Xử lý phản hồi streaming
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let partialData = '';
+    async function sendMessage() {
+        const question = questionInput.value.trim();
+        if (!question) return;
 
-    function read() {
-        reader.read().then(({ done, value }) => {
-            if (done) {
-                console.log("Stream complete");
-                return;
-            }
-            // Giải mã dữ liệu nhận được
-            partialData += decoder.decode(value, { stream: true });
+        appendMessage("Bạn", question, "user-message");
+        questionInput.value = "";
 
-            // Tách các sự kiện SSE theo dấu xuống dòng "\n\n"
-            const events = partialData.split("\n\n");
-            partialData = events.pop(); // Lưu phần dữ liệu chưa hoàn chỉnh
+        const aiMessageElem = appendMessage("AI", '<span class="typing">...</span>', "ai-message");
 
-            events.forEach(eventStr => {
-                if (eventStr.trim()) {
-                    // Lấy nội dung từ dòng bắt đầu với "data:"
-                    const dataLine = eventStr.split('\n').find(line => line.startsWith("data:"));
-                    if (dataLine) {
-                        const data = dataLine.replace("data:", "").trim();
-
-                        // Thêm token vào khu vực chat
-                        const messageElem = document.createElement('p');
-                        messageElem.className = 'message';
-                        messageElem.textContent = data;
-                        chatArea.appendChild(messageElem);
-
-                        // Cuộn xuống cuối
-                        chatArea.scrollTop = chatArea.scrollHeight;
-                    }
-                }
+        try {
+            const response = await fetch('/api/v1/conversation', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: question })
             });
 
-            // Tiếp tục đọc stream
-            read();
-        }).catch(error => {
-            console.error("Error reading stream:", error);
-        });
+            if (!response.ok) {
+                throw new Error("Không thể kết nối với server!");
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let partialData = '';
+            let isFirstChunk = true;
+
+            async function read() {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    partialData += decoder.decode(value, { stream: true });
+
+                    const events = partialData.split("\n\n");
+                    partialData = events.pop();
+                    events.forEach(eventStr => {
+                        if (eventStr.trim()) {
+                            const dataLines = eventStr.split('\n').filter(line => line.startsWith("data:"));
+                            const dataContent = dataLines.map(line => line.replace("data:", "").trim()).join("\n");
+
+                            if (dataContent) {
+                                if (isFirstChunk) {
+                                    aiMessageElem.innerHTML = "";
+                                    isFirstChunk = false;
+                                }
+                                typeEffect(aiMessageElem, parseMarkdown(dataContent));
+                            }
+                        }
+                    });
+                }
+            }
+            await read();
+        } catch (error) {
+            console.error("Lỗi:", error);
+            aiMessageElem.innerHTML = `<strong>Lỗi:</strong> Không thể kết nối!`;
+            aiMessageElem.classList.add("error-message");
+        }
     }
-    read();
+
+    function appendMessage(sender, text, className) {
+        const messageElem = document.createElement('div');
+        messageElem.className = `message ${className}`;
+        messageElem.innerHTML = `<strong>${sender}:</strong> <span class="message-text">${text}</span>`;
+        chatArea.appendChild(messageElem);
+        chatArea.scrollTop = chatArea.scrollHeight;
+        return messageElem.querySelector('.message-text');
+    }
+
+    function typeEffect(element, text) {
+        let i = 0;
+        let finalHTML = "";
+
+        function type() {
+            if (i < text.length) {
+                finalHTML += text.charAt(i);
+                element.innerHTML = parseMarkdown(finalHTML);
+                i++;
+                setTimeout(type, 5);
+                chatArea.scrollTop = chatArea.scrollHeight;
+            }
+        }
+        type();
+    }
+
+    function parseMarkdown(text) {
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\n- (.*?)/g, '<li>$1</li>')
+            .replace(/\n/g, "<br>")
+            .replace(/<\/li><br>/g, '</li>')
+            .replace(/<li>(.*?)<\/li>/g, '<ul><li>$1</li></ul>')
+            .replace(/<\/ul><ul>/g, '');
+    }
 });
